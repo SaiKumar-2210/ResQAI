@@ -45,12 +45,8 @@ function buildRequestBody(input: GenerateGemmaInput) {
       maxOutputTokens: 1400,
       ...(input.responseSchema
         ? {
-            responseFormat: {
-              text: {
-                mimeType: "application/json",
-                schema: input.responseSchema
-              }
-            }
+            responseMimeType: "application/json",
+            responseJsonSchema: input.responseSchema
           }
         : {})
     }
