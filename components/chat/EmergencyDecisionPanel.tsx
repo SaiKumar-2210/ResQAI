@@ -1,12 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { Bot, Loader2, MessageSquareText, Send, ShieldAlert, User } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Bot,
+  Loader2,
+  MessageSquareText,
+  Mic,
+  MicOff,
+  Send,
+  ShieldAlert,
+  User,
+  Volume2,
+  VolumeX
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { useSpeechRecognition } from "@/lib/hooks/useSpeechRecognition";
 import { useStreamingChat } from "@/lib/hooks/useStreamingChat";
+import { useVoiceOutput } from "@/lib/hooks/useVoiceOutput";
 import type { DisasterType } from "@/lib/types/disaster";
 import type { SupportedLanguage } from "@/lib/types/language";
 
@@ -22,7 +35,27 @@ export function EmergencyDecisionPanel({
   onScenarioChange: (value: DisasterType) => void;
 }) {
   const [message, setMessage] = useState("");
+  const [voiceReplies, setVoiceReplies] = useState(false);
+  const [spokenMessageId, setSpokenMessageId] = useState<string | null>(null);
   const { messages, isStreaming, error, sendMessage } = useStreamingChat();
+  const speech = useSpeechRecognition(language);
+  const voice = useVoiceOutput(language);
+
+  const lastAssistantMessage = useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find((item) => item.role === "assistant" && item.structured && item.content.trim()),
+    [messages]
+  );
+
+  useEffect(() => {
+    if (!voiceReplies || isStreaming || !lastAssistantMessage || !voice.supported) return;
+    if (spokenMessageId === lastAssistantMessage.id) return;
+
+    voice.speak(lastAssistantMessage.content);
+    setSpokenMessageId(lastAssistantMessage.id);
+  }, [isStreaming, lastAssistantMessage, spokenMessageId, voice, voiceReplies]);
 
   async function submit(nextMessage = message) {
     if (!nextMessage.trim() || isStreaming) return;
@@ -59,6 +92,18 @@ export function EmergencyDecisionPanel({
             }}
           >
             Fire Exit Guidance
+          </Button>
+          <Button
+            size="sm"
+            variant={voiceReplies ? "secondary" : "outline"}
+            onClick={() => {
+              if (voiceReplies) voice.stop();
+              setVoiceReplies((current) => !current);
+            }}
+            disabled={!voice.supported}
+          >
+            {voiceReplies ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            Voice Reply
           </Button>
         </div>
 
@@ -114,6 +159,17 @@ export function EmergencyDecisionPanel({
                       ))}
                     </div>
                   ) : null}
+                  {item.role === "assistant" && item.content.trim() && voice.supported ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="mt-3"
+                      onClick={() => voice.speak(item.content)}
+                    >
+                      <Volume2 className="h-4 w-4" />
+                      Read Aloud
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))
@@ -126,12 +182,31 @@ export function EmergencyDecisionPanel({
           <Textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
-            placeholder="Ask: What should I do during an earthquake?"
+            placeholder={
+              speech.isListening
+                ? speech.transcript || "Listening..."
+                : "Ask or use the microphone: What should I do during an earthquake?"
+            }
           />
-          <Button className="w-full" onClick={() => submit()} disabled={!message.trim() || isStreaming}>
-            {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Stream Guidance
-          </Button>
+          {speech.error ? <p className="text-sm text-amber-200">{speech.error}</p> : null}
+          <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
+            <Button
+              variant={speech.isListening ? "secondary" : "outline"}
+              onClick={() =>
+                speech.isListening
+                  ? speech.stopListening()
+                  : speech.startListening((value) => setMessage(value))
+              }
+              disabled={!speech.supported || isStreaming}
+            >
+              {speech.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              {speech.isListening ? "Stop" : "Speak"}
+            </Button>
+            <Button className="w-full" onClick={() => submit()} disabled={!message.trim() || isStreaming}>
+              {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Stream Guidance
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>

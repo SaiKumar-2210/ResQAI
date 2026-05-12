@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  finalizeStreamedChatResponse,
-  generateChatResponse,
-  startChatStream
-} from "@/lib/ai/gemmaService";
+import { generateChatResponse } from "@/lib/ai/gemmaService";
 import { assertRateLimit } from "@/lib/ai/rateLimit";
-import { chatFallback } from "@/lib/ai/fallbackResponses";
-import { createClientSseStream, encodeSse } from "@/lib/ai/streaming";
-import { getGemmaConfig } from "@/lib/ai/gemmaClient";
+import { encodeSse } from "@/lib/ai/streaming";
 import { trackEvent } from "@/lib/monitoring/analytics";
 import type { DisasterType } from "@/lib/types/disaster";
 import type { SupportedLanguage } from "@/lib/types/language";
@@ -16,6 +10,22 @@ export const runtime = "nodejs";
 
 function clientKey(request: NextRequest) {
   return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+}
+
+function streamChatResult(result: Awaited<ReturnType<typeof generateChatResponse>>) {
+  const words = result.summary.split(/(\s+)/).filter(Boolean);
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const word of words) {
+        controller.enqueue(encodeSse({ type: "token", token: word }));
+        await new Promise((resolve) => setTimeout(resolve, 18));
+      }
+
+      controller.enqueue(encodeSse({ type: "done", data: result }));
+      controller.close();
+    }
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -47,12 +57,9 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const gemma = await startChatStream(input);
-      const stream = createClientSseStream(gemma.stream, (fullText) => {
-        const result = finalizeStreamedChatResponse(fullText, gemma.model);
-        gemma.cleanup();
-        return result;
-      });
+      trackEvent("chat_stream_started", { scenario: input.scenario, language: input.language });
+      const result = await generateChatResponse(input);
+      const stream = streamChatResult(result);
 
       return new Response(stream, {
         headers: {
@@ -65,24 +72,7 @@ export async function POST(request: NextRequest) {
       trackEvent("chat_stream_failed", {
         error: error instanceof Error ? error.message : String(error)
       });
-
-      const fallback = chatFallback(input.language, getGemmaConfig().model);
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          const text = JSON.stringify(fallback, null, 2);
-          controller.enqueue(encodeSse({ type: "token", token: text }));
-          controller.enqueue(encodeSse({ type: "done", data: fallback }));
-          controller.close();
-        }
-      });
-
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-cache, no-transform",
-          Connection: "keep-alive"
-        }
-      });
+      throw error;
     }
   } catch (error) {
     const status = error instanceof Error && error.name === "RateLimitError" ? 429 : 500;

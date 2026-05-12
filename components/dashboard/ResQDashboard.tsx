@@ -11,6 +11,7 @@ import { ChecklistGenerator } from "@/components/checklist/ChecklistGenerator";
 import { EmergencyDecisionPanel } from "@/components/chat/EmergencyDecisionPanel";
 import { ImageAnalysisPanel } from "@/components/image-analysis/ImageAnalysisPanel";
 import { DemoModePanel } from "@/components/demo/DemoModePanel";
+import { LocationEmergencyPanel } from "@/components/dashboard/LocationEmergencyPanel";
 import { ConnectivityIndicator } from "@/components/pwa/ConnectivityIndicator";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import { OfflineBanner } from "@/components/pwa/OfflineBanner";
@@ -147,27 +148,7 @@ export function ResQDashboard() {
       </section>
 
       <section className="mt-6 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-        <Card className="bg-slate-950/70">
-          <CardHeader>
-            <CardTitle>Emergency Contacts</CardTitle>
-            <CardDescription>Tap-to-call numbers for Indian demo context.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {emergencyContacts.map((contact) => (
-              <a
-                key={contact.value}
-                href={`tel:${contact.value}`}
-                className="flex items-center justify-between rounded-lg border border-white/10 bg-background/65 p-3 hover:bg-secondary/70"
-              >
-                <div>
-                  <p className="text-sm font-semibold">{contact.label}</p>
-                  <p className="text-xs text-muted-foreground">{contact.note}</p>
-                </div>
-                <span className="font-mono text-lg text-teal-200">{contact.value}</span>
-              </a>
-            ))}
-          </CardContent>
-        </Card>
+        <LocationEmergencyPanel scenario={scenario} />
 
         <Card className="bg-slate-950/70">
           <CardHeader>
@@ -194,6 +175,30 @@ export function ResQDashboard() {
             >
               National Disaster Management Authority <ExternalLink className="h-4 w-4" />
             </a>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="mt-6 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+        <Card className="bg-slate-950/70">
+          <CardHeader>
+            <CardTitle>Emergency Contacts</CardTitle>
+            <CardDescription>Tap-to-call numbers for Indian demo context.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {emergencyContacts.map((contact) => (
+              <a
+                key={contact.value}
+                href={`tel:${contact.value}`}
+                className="flex items-center justify-between rounded-lg border border-white/10 bg-background/65 p-3 hover:bg-secondary/70"
+              >
+                <div>
+                  <p className="text-sm font-semibold">{contact.label}</p>
+                  <p className="text-xs text-muted-foreground">{contact.note}</p>
+                </div>
+                <span className="font-mono text-lg text-teal-200">{contact.value}</span>
+              </a>
+            ))}
           </CardContent>
         </Card>
       </section>

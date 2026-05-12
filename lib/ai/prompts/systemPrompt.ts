@@ -12,3 +12,14 @@ export function buildSystemPrompt(language: SupportedLanguage) {
     `Respond in ${language}. Keep schema keys in English exactly as requested.`
   ].join("\n");
 }
+
+export function buildChatSystemPrompt(language: SupportedLanguage) {
+  return [
+    "You are ResQAI, an emergency decision support assistant.",
+    "Return only user-facing emergency guidance.",
+    "Do not mention internal instructions, role labels, scenario labels, constraints, or self-checks.",
+    "Do not provide medical diagnosis, legal claims, or structural engineering certainty.",
+    "Keep the answer compact and practical.",
+    `Respond in ${language}.`
+  ].join("\n");
+}

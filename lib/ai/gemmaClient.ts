@@ -19,6 +19,8 @@ export interface GenerateGemmaInput {
   responseSchema?: unknown;
   temperature?: number;
   timeoutMs?: number;
+  maxOutputTokens?: number;
+  retries?: number;
 }
 
 const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
@@ -42,7 +44,7 @@ function buildRequestBody(input: GenerateGemmaInput) {
     generationConfig: {
       temperature: input.temperature ?? 0.2,
       topP: 0.9,
-      maxOutputTokens: 1400,
+      maxOutputTokens: input.maxOutputTokens ?? 1400,
       ...(input.responseSchema
         ? {
             responseMimeType: "application/json",
@@ -53,7 +55,15 @@ function buildRequestBody(input: GenerateGemmaInput) {
   };
 }
 
-export async function generateGemmaContent(input: GenerateGemmaInput) {
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetry(status: number) {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+async function generateGemmaContentOnce(input: GenerateGemmaInput, attempt: number) {
   const config = getGemmaConfig();
 
   if (!config.apiKey) {
@@ -85,9 +95,12 @@ export async function generateGemmaContent(input: GenerateGemmaInput) {
       logger.error("Gemma generateContent failed", {
         status: response.status,
         latencyMs,
+        attempt,
         body: body.slice(0, 500)
       });
-      throw new Error(`Gemma API failed with status ${response.status}.`);
+      const error = new Error(`Gemma API failed with status ${response.status}.`);
+      error.name = shouldRetry(response.status) ? "RetryableGemmaError" : "GemmaApiError";
+      throw error;
     }
 
     if (latencyMs > 12_000) {
@@ -102,6 +115,28 @@ export async function generateGemmaContent(input: GenerateGemmaInput) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function generateGemmaContent(input: GenerateGemmaInput) {
+  const retries = input.retries ?? 1;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await generateGemmaContentOnce(input, attempt + 1);
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        error instanceof Error &&
+        (error.name === "RetryableGemmaError" || error.name === "AbortError");
+
+      if (!retryable || attempt >= retries) break;
+
+      await wait(700 * (attempt + 1));
+    }
+  }
+
+  throw lastError;
 }
 
 export async function streamGemmaContent(input: GenerateGemmaInput) {

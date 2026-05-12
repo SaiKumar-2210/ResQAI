@@ -9,10 +9,10 @@ import type {
 import type { DangerLevel, DisasterType } from "@/lib/types/disaster";
 import { trackEvent } from "@/lib/monitoring/analytics";
 import { logger } from "@/lib/monitoring/logger";
-import { buildChatPrompt } from "./prompts/chatPrompt";
+import { buildChatPrompt, buildFastChatPrompt } from "./prompts/chatPrompt";
 import { buildChecklistPrompt } from "./prompts/checklistPrompt";
 import { buildImageAnalysisPrompt } from "./prompts/imageAnalysisPrompt";
-import { buildSystemPrompt } from "./prompts/systemPrompt";
+import { buildChatSystemPrompt, buildSystemPrompt } from "./prompts/systemPrompt";
 import { checklistResponseSchema } from "./schemas/checklistSchema";
 import { chatResponseSchema } from "./schemas/chatResponseSchema";
 import { imageAnalysisResponseSchema } from "./schemas/imageAnalysisSchema";
@@ -96,6 +96,57 @@ function coerceChat(value: unknown, modelUsed: string): ChatStructuredResponse {
     emergencyEscalation: String(raw.emergencyEscalation ?? ""),
     followUpQuestion: String(raw.followUpQuestion ?? ""),
     language: raw.language ?? "english",
+    modelUsed
+  });
+}
+
+function cleanChatText(text: string) {
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  const numberedStepMatches = [...normalized.matchAll(/\n?\s*1\.\s+/g)];
+  const lastNumberedAnswer =
+    numberedStepMatches.length > 0
+      ? normalized.slice(numberedStepMatches[numberedStepMatches.length - 1].index).trim()
+      : normalized;
+
+  return lastNumberedAnswer
+    .replace(/\*?\s*Self-Correction:[\s\S]*$/i, "")
+    .replace(/\*?\s*Constraint Check:[\s\S]*$/i, "")
+    .slice(0, 1400)
+    .trim();
+}
+
+function wrapChatText(
+  text: string,
+  modelUsed: string,
+  input: GemmaChatInput
+): ChatStructuredResponse {
+  const cleanedText = cleanChatText(text);
+
+  return injectSafetyIntoChat({
+    dangerLevel: input.scenario && input.scenario !== "unknown" ? "HIGH" : "MODERATE",
+    confidence: 0.72,
+    summary: cleanedText,
+    immediateActions: [
+      {
+        label: "Move away from immediate danger",
+        reason: "Distance and shelter reduce exposure while conditions are uncertain.",
+        urgency: "now"
+      },
+      {
+        label: "Contact local emergency services if risk is imminent",
+        reason: "Official responders can give location-specific instructions.",
+        urgency: "now"
+      },
+      {
+        label: "Follow official alerts and keep communication available",
+        reason: "Disaster conditions can change quickly.",
+        urgency: "soon"
+      }
+    ],
+    escalationNeeded: true,
+    emergencyEscalation: "",
+    followUpQuestion: "",
+    language: input.language,
     modelUsed
   });
 }
@@ -213,20 +264,27 @@ export async function generateChatResponse(input: GemmaChatInput): Promise<ChatS
       })) ?? [];
 
     const response = await generateGemmaContent({
-      systemPrompt: buildSystemPrompt(input.language),
-      responseSchema: chatResponseSchema,
-      temperature: 0.25,
+      systemPrompt: buildChatSystemPrompt(input.language),
+      temperature: 0.15,
+      timeoutMs: 35_000,
+      maxOutputTokens: 220,
+      retries: 2,
       contents: [
         ...history,
         {
           role: "user",
-          parts: [{ text: buildChatPrompt(input.message, input.language, input.scenario) }]
+          parts: [{ text: buildFastChatPrompt(input.message, input.language, input.scenario) }]
         }
       ]
     });
 
-    const parsed = parseJsonObject<ChatStructuredResponse>(extractTextFromGemmaResponse(response.payload));
-    return coerceChat(parsed, response.model);
+    const text = extractTextFromGemmaResponse(response.payload);
+
+    if (!text) {
+      throw new Error("Gemma returned an empty chat response.");
+    }
+
+    return wrapChatText(text, response.model, input);
   } catch (error) {
     logger.error("Chat response failed, returning fallback", {
       error: error instanceof Error ? error.message : String(error)

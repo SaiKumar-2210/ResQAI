@@ -18,3 +18,21 @@ export function buildChatPrompt(message: string, language: SupportedLanguage, sc
     `Respond in ${language}.`
   ].join("\n");
 }
+
+export function buildFastChatPrompt(message: string, language: SupportedLanguage, scenario?: DisasterType) {
+  const context =
+    scenario && scenario !== "unknown"
+      ? `Emergency scenario: ${scenario}.`
+      : "Emergency scenario: unknown.";
+
+  return [
+    "Answer the user's emergency question.",
+    context,
+    "Write exactly 4 numbered steps.",
+    "Each step must be one short sentence.",
+    "Mention emergency services only if danger, injury, fire, collapse, trapped people, or blocked exits are possible.",
+    "Do not include notes, disclaimers, headings, markdown tables, or explanations after the 4 steps.",
+    `User question: ${message}`,
+    `Language: ${language}.`
+  ].join("\n");
+}
