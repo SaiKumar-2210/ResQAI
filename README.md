@@ -1,6 +1,6 @@
 # ResQAI
 
-ResQAI is a production-quality hackathon MVP for the Kaggle Gemma 4 Good Hackathon. It is positioned as an emergency decision support system, not a generic chatbot.
+ResQAI is a production-quality MVP. It is positioned as an emergency decision support system, not a generic chatbot.
 
 The technical core is Gemma-powered multimodal image analysis with structured JSON responses:
 
