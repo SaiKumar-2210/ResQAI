@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { useSpeechRecognition } from "@/lib/hooks/useSpeechRecognition";
+import { useGeminiVoiceInput } from "@/lib/hooks/useGeminiVoiceInput";
 import { useStreamingChat } from "@/lib/hooks/useStreamingChat";
 import { useVoiceOutput } from "@/lib/hooks/useVoiceOutput";
 import type { DisasterType } from "@/lib/types/disaster";
@@ -38,7 +38,7 @@ export function EmergencyDecisionPanel({
   const [voiceReplies, setVoiceReplies] = useState(false);
   const [spokenMessageId, setSpokenMessageId] = useState<string | null>(null);
   const { messages, isStreaming, error, sendMessage } = useStreamingChat();
-  const speech = useSpeechRecognition(language);
+  const voiceInput = useGeminiVoiceInput(language);
   const voice = useVoiceOutput(language);
 
   const lastAssistantMessage = useMemo(
@@ -50,7 +50,7 @@ export function EmergencyDecisionPanel({
   );
 
   useEffect(() => {
-    if (!voiceReplies || isStreaming || !lastAssistantMessage || !voice.supported) return;
+    if (!voiceReplies || isStreaming || !lastAssistantMessage) return;
     if (spokenMessageId === lastAssistantMessage.id) return;
 
     voice.speak(lastAssistantMessage.content);
@@ -74,7 +74,7 @@ export function EmergencyDecisionPanel({
       <CardHeader>
         <CardTitle>Emergency Decision Support</CardTitle>
         <CardDescription>
-          Stream Gemma guidance for survival questions with multilingual response control.
+          Stream Gemma guidance, record voice input, and play multilingual audio guidance.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -100,25 +100,21 @@ export function EmergencyDecisionPanel({
               if (voiceReplies) voice.stop();
               setVoiceReplies((current) => !current);
             }}
-            disabled={!voice.supported}
           >
             {voiceReplies ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             Voice Reply
           </Button>
         </div>
 
-        {voice.supported && voice.voicesLoaded && !voice.hasLanguageVoice ? (
+        {voice.voicesLoaded && !voice.hasLanguageVoice ? (
           <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
-            This browser has no installed voice for the selected language, so speech may sound
-            English-accented or may not play correctly. Install a Telugu/Hindi voice in the OS or
-            try Chrome/Edge with language voices enabled.
+            No installed browser voice was found for this language, so ResQAI will use Gemini voice
+            generation for read-aloud instead.
           </div>
         ) : null}
 
-        {voice.supported && voice.selectedVoiceName ? (
-          <p className="text-xs text-muted-foreground">
-            Voice output: {voice.selectedVoiceName}
-          </p>
+        {voice.selectedVoiceName ? (
+          <p className="text-xs text-muted-foreground">Browser voice: {voice.selectedVoiceName}</p>
         ) : null}
 
         <div className="min-h-[290px] space-y-3 rounded-lg border border-white/10 bg-background/65 p-3">
@@ -152,16 +148,12 @@ export function EmergencyDecisionPanel({
                         <Badge variant={item.structured.dangerLevel === "LOW" ? "success" : "warning"}>
                           {item.structured.dangerLevel}
                         </Badge>
-                        <Badge variant="outline">
-                          {Math.round(item.structured.confidence * 100)}%
-                        </Badge>
+                        <Badge variant="outline">{Math.round(item.structured.confidence * 100)}%</Badge>
                       </>
                     ) : null}
                   </div>
                   <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
-                    {item.role === "assistant" && item.content.trim().startsWith("{")
-                      ? "Gemma is streaming structured emergency guidance..."
-                      : item.content}
+                    {item.content}
                   </p>
                   {item.structured?.immediateActions?.length ? (
                     <div className="mt-3 grid gap-2">
@@ -173,14 +165,19 @@ export function EmergencyDecisionPanel({
                       ))}
                     </div>
                   ) : null}
-                  {item.role === "assistant" && item.content.trim() && voice.supported ? (
+                  {item.role === "assistant" && item.content.trim() ? (
                     <Button
                       size="sm"
                       variant="ghost"
                       className="mt-3"
                       onClick={() => voice.speak(item.content)}
+                      disabled={voice.isGenerating}
                     >
-                      <Volume2 className="h-4 w-4" />
+                      {voice.isGenerating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Volume2 className="h-4 w-4" />
+                      )}
                       Read Aloud
                     </Button>
                   ) : null}
@@ -191,34 +188,50 @@ export function EmergencyDecisionPanel({
         </div>
 
         {error ? <p className="text-sm text-red-200">{error}</p> : null}
+        {voiceInput.error ? (
+          <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+            {voiceInput.error}
+          </div>
+        ) : null}
+        {voice.error ? (
+          <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+            {voice.error}
+          </div>
+        ) : null}
 
         <div className="space-y-3">
           <Textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             placeholder={
-              speech.isListening
-                ? speech.transcript || "Listening..."
-                : "Ask or use the microphone: What should I do during an earthquake?"
+              voiceInput.isRecording
+                ? "Recording... tap Stop to transcribe with Gemini"
+                : voiceInput.isTranscribing
+                  ? "Transcribing your voice..."
+                  : "Ask or use the microphone: What should I do during an earthquake?"
             }
           />
-          {speech.error ? (
-            <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
-              {speech.error}
-            </div>
-          ) : null}
           <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
             <Button
-              variant={speech.isListening ? "secondary" : "outline"}
-              onClick={() =>
-                speech.isListening
-                  ? speech.stopListening()
-                  : speech.startListening((value) => setMessage(value))
-              }
-              disabled={!speech.supported || isStreaming}
+              variant={voiceInput.isRecording ? "secondary" : "outline"}
+              onClick={async () => {
+                if (voiceInput.isRecording) {
+                  const transcript = await voiceInput.stopAndTranscribe();
+                  if (transcript) setMessage(transcript);
+                } else {
+                  await voiceInput.startRecording();
+                }
+              }}
+              disabled={!voiceInput.supported || isStreaming || voiceInput.isTranscribing}
             >
-              {speech.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-              {speech.isListening ? "Stop" : "Speak"}
+              {voiceInput.isRecording ? (
+                <MicOff className="h-4 w-4" />
+              ) : voiceInput.isTranscribing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+              {voiceInput.isRecording ? "Stop" : voiceInput.isTranscribing ? "Transcribing" : "Speak"}
             </Button>
             <Button className="w-full" onClick={() => submit()} disabled={!message.trim() || isStreaming}>
               {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

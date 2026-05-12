@@ -16,6 +16,7 @@ export interface GemmaContent {
 export interface GenerateGemmaInput {
   contents: GemmaContent[];
   systemPrompt: string;
+  model?: string;
   responseSchema?: unknown;
   temperature?: number;
   timeoutMs?: number;
@@ -23,13 +24,23 @@ export interface GenerateGemmaInput {
   retries?: number;
 }
 
+export interface GenerateAudioInput {
+  text: string;
+  voiceName?: string;
+  model?: string;
+  timeoutMs?: number;
+}
+
 const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_MODEL = "gemma-4-26b-a4b-it";
+const DEFAULT_TTS_MODEL = "gemini-3.1-flash-tts-preview";
 
 export function getGemmaConfig() {
   return {
     apiKey: process.env.GEMMA_API_KEY,
     model: process.env.GEMMA_MODEL ?? DEFAULT_MODEL,
+    ttsModel: process.env.GEMINI_TTS_MODEL ?? DEFAULT_TTS_MODEL,
+    audioModel: process.env.GEMINI_AUDIO_MODEL ?? "gemini-2.5-flash",
     baseUrl: process.env.GEMMA_API_BASE_URL ?? DEFAULT_BASE_URL,
     timeoutMs: Number(process.env.GEMMA_REQUEST_TIMEOUT_MS ?? 25_000)
   };
@@ -76,7 +87,7 @@ async function generateGemmaContentOnce(input: GenerateGemmaInput, attempt: numb
 
   try {
     const response = await fetch(
-      `${config.baseUrl}/models/${config.model}:generateContent`,
+      `${config.baseUrl}/models/${input.model ?? config.model}:generateContent`,
       {
         method: "POST",
         headers: {
@@ -110,7 +121,7 @@ async function generateGemmaContentOnce(input: GenerateGemmaInput, attempt: numb
     return {
       payload: await response.json(),
       latencyMs,
-      model: config.model
+      model: input.model ?? config.model
     };
   } finally {
     clearTimeout(timeout);
@@ -176,5 +187,61 @@ export async function streamGemmaContent(input: GenerateGemmaInput) {
   } catch (error) {
     clearTimeout(timeout);
     throw error;
+  }
+}
+
+export async function generateGeminiSpeech(input: GenerateAudioInput) {
+  const config = getGemmaConfig();
+
+  if (!config.apiKey) {
+    throw new Error("Missing GEMMA_API_KEY. Add it to your environment before calling Gemini TTS.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 45_000);
+  const model = input.model ?? config.ttsModel;
+
+  try {
+    const response = await fetch(`${config.baseUrl}/models/${model}:generateContent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": config.apiKey
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: input.text }]
+          }
+        ],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: input.voiceName ?? "Kore"
+              }
+            }
+          }
+        }
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      logger.error("Gemini TTS failed", {
+        status: response.status,
+        body: body.slice(0, 500)
+      });
+      throw new Error(`Gemini TTS failed with status ${response.status}.`);
+    }
+
+    return {
+      payload: await response.json(),
+      model
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 }
