@@ -107,6 +107,20 @@ export function EmergencyDecisionPanel({
           </Button>
         </div>
 
+        {voice.supported && voice.voicesLoaded && !voice.hasLanguageVoice ? (
+          <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+            This browser has no installed voice for the selected language, so speech may sound
+            English-accented or may not play correctly. Install a Telugu/Hindi voice in the OS or
+            try Chrome/Edge with language voices enabled.
+          </div>
+        ) : null}
+
+        {voice.supported && voice.selectedVoiceName ? (
+          <p className="text-xs text-muted-foreground">
+            Voice output: {voice.selectedVoiceName}
+          </p>
+        ) : null}
+
         <div className="min-h-[290px] space-y-3 rounded-lg border border-white/10 bg-background/65 p-3">
           {messages.length === 0 ? (
             <div className="flex h-[260px] flex-col items-center justify-center text-center text-sm text-muted-foreground">
@@ -188,7 +202,11 @@ export function EmergencyDecisionPanel({
                 : "Ask or use the microphone: What should I do during an earthquake?"
             }
           />
-          {speech.error ? <p className="text-sm text-amber-200">{speech.error}</p> : null}
+          {speech.error ? (
+            <div className="rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+              {speech.error}
+            </div>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-[auto_1fr]">
             <Button
               variant={speech.isListening ? "secondary" : "outline"}

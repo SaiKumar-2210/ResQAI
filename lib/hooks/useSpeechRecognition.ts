@@ -35,6 +35,30 @@ const speechLanguageMap: Record<SupportedLanguage, string> = {
   hindi: "hi-IN"
 };
 
+function getSpeechErrorMessage(error?: string) {
+  if (error === "not-allowed" || error === "service-not-allowed") {
+    return "Microphone permission was blocked. Allow microphone access in the browser and try again.";
+  }
+
+  if (error === "no-speech") {
+    return "No speech was detected. Try again closer to the microphone.";
+  }
+
+  if (error === "audio-capture") {
+    return "No microphone was found or it is being used by another app.";
+  }
+
+  if (error === "language-not-supported") {
+    return "This browser does not support speech recognition for the selected language.";
+  }
+
+  if (error === "network") {
+    return "Speech recognition needs browser speech services and network access.";
+  }
+
+  return error ? `Microphone error: ${error}` : "Microphone failed.";
+}
+
 function getSpeechRecognitionConstructor() {
   if (typeof window === "undefined") return null;
   const speechWindow = window as Window & {
@@ -55,7 +79,12 @@ export function useSpeechRecognition(language: SupportedLanguage) {
   function startListening(onFinalTranscript?: (value: string) => void) {
     const Recognition = getSpeechRecognitionConstructor();
     if (!Recognition) {
-      setError("Speech recognition is not supported in this browser.");
+      setError("Speech recognition is not supported in this browser. Try Chrome or Edge for microphone input.");
+      return;
+    }
+
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setError("Microphone access requires HTTPS or localhost.");
       return;
     }
 
@@ -84,7 +113,7 @@ export function useSpeechRecognition(language: SupportedLanguage) {
     };
 
     recognition.onerror = (event) => {
-      setError(event.error ? `Microphone error: ${event.error}` : "Microphone failed.");
+      setError(getSpeechErrorMessage(event.error));
       setIsListening(false);
     };
 
@@ -93,7 +122,17 @@ export function useSpeechRecognition(language: SupportedLanguage) {
     recognitionRef.current = recognition;
     setError(null);
     setIsListening(true);
-    recognition.start();
+
+    try {
+      recognition.start();
+    } catch (startError) {
+      setIsListening(false);
+      setError(
+        startError instanceof Error
+          ? `Could not start microphone: ${startError.message}`
+          : "Could not start microphone."
+      );
+    }
   }
 
   function stopListening() {
